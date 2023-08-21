@@ -1,23 +1,25 @@
 package edu.sharif.hwlab
 
-import android.os.Bundle
-import androidx.fragment.app.Fragment
-import android.view.LayoutInflater
-import android.view.View
-import android.view.ViewGroup
-import androidx.navigation.fragment.findNavController
-import edu.sharif.hwlab.databinding.FragmentFirstBinding
-
-import com.fasterxml.jackson.databind.ObjectMapper
-import java.net.URL
 //import java.net.http.HttpClient
 //import java.net.http.HttpRequest
 //import java.net.http.HttpResponse
 
+import android.content.Context
+import android.net.wifi.WifiConfiguration
+import android.net.wifi.WifiManager
+import android.os.Bundle
+import android.util.Log
+import android.view.LayoutInflater
+import android.view.View
+import android.view.ViewGroup
+import androidx.fragment.app.Fragment
+import edu.sharif.hwlab.databinding.FragmentFirstBinding
 import java.io.BufferedReader
 import java.io.DataOutputStream
 import java.io.InputStreamReader
 import java.net.HttpURLConnection
+import java.net.URL
+
 
 /**
  * A simple [Fragment] subclass as the default destination in the navigation.
@@ -41,10 +43,8 @@ class FirstFragment : Fragment() {
     }
 
     fun postRequest() {
-
 //        val values = mapOf("ssid" to binding.ssidText.text, "password" to binding.passwordText.text)
-
-        val url = URL("https://postman-echo.com/post")
+        val url = URL("http://192.168.4.1/wifi")
         val postData = "ssid=" + binding.ssidText.text + "&password=" + binding.passwordText.text
 
         val conn = url.openConnection() as HttpURLConnection
@@ -61,7 +61,20 @@ class FirstFragment : Fragment() {
                 println(line)
             }
         }
+    }
 
+    fun setupHotspot(){
+        val esp_ssid = "sakht"
+        val esp_password = "12345678"
+
+        val wifiConfig = WifiConfiguration()
+        wifiConfig.SSID = java.lang.String.format("\"%s\"", esp_ssid)
+        wifiConfig.preSharedKey = java.lang.String.format("\"%s\"", esp_password)
+        val wifiManager = context?.getSystemService(Context.WIFI_SERVICE) as WifiManager
+        val netId = wifiManager.addNetwork(wifiConfig)
+        wifiManager.disconnect()
+        wifiManager.enableNetwork(netId, true)
+        wifiManager.reconnect()
     }
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
