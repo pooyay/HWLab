@@ -3,6 +3,10 @@
 #include <ESP8266HTTPClient.h>
 #include <WiFiClient.h>
 #include <EEPROM.h>
+#include <ESP8266mDNS.h>
+#include <ArduinoOTA.h>
+#include "ESPAsyncTCP.h"
+#include "SyncClient.h"
 
 #define SSID_ADDRESS 0     // Address to store SSID in EEPROM
 #define PASS_ADDRESS 32    // Address to store password in EEPROM
@@ -22,7 +26,28 @@ unsigned long lastButtonPressTime = 0;
 const unsigned long debounceDelay = 1000;
 unsigned long lastServerUpdate = 0;
 const unsigned long serverUpdateInterval = 1000;
+const unsigned long serverSource = 0;
+const unsigned long localSource = 1;
+const unsigned long buttonSource = 2;
 
+unsigned long lastUpdateTimer = 0;
+unsigned long lastButtonUpdateTimer = 0;
+unsigned long lastUpdateSource = 0;
+
+void handleUpdate(int timer, int res, int source = 2){
+  if(lastUpdateTimer<timer){
+    lastUpdateTimer = timer;
+    relayState = res;
+    lastUpdateSource = source;
+    digitalWrite(relayPin, relayState ? LOW : HIGH);
+  }
+}
+
+
+void internal_loop(){
+    server.handleClient();
+    updateButtonState();
+}
 
 void setup() {
   // Initialize relay pin
@@ -50,12 +75,44 @@ void setup() {
   server.on("/wifi", HTTP_POST, handleWifiSetup);
 
   server.begin();
+  ArduinoOTA.begin();
+
+  while(true){
+    delay(1);
+    Serial.println("Trying");
+    SyncClient client;
+    int lastServerUpdateTimer = millis();
+    if(!client.connect("192.168.4.2", 8000)) {
+      Serial.println("Connect Failed");
+      continue;
+    }
+    client.setTimeout(5);
+    String stats = (lastUpdateSource == serverSource ? "no_change": (relayState?"on":"off"));
+    String request = "POST /socket_status?status="+stats+" HTTP/1.1\r\nHost: 192.168.4.2\r\nConnection: close\r\n\r\n";
+    char response;
+    if(client.printf(request.c_str()) > 0){
+      while(client.connected() || client.available()){
+        while(!client.available()){
+          internal_loop();
+        }
+        response = client.read();
+      }
+      Serial.print("result: ");
+      Serial.println(response);
+      handleUpdate(lastServerUpdateTimer, response=='1'?1:0, serverSource);
+      if(client.connected()){
+        client.stop();
+      }
+    } else {
+      client.stop();
+      Serial.println("Send Failed");
+      while(client.connected()) delay(0);
+    }
+  }
 }
 
 void loop() {
-  server.handleClient();
-  updateButtonState();
-  updateServer();
+  ArduinoOTA.handle();
 }
 
 void handleRoot() {
@@ -70,18 +127,22 @@ void handleRoot() {
 }
 
 
+void sendState(){
+  server.send(200, "text/plain", (relayState? "{\"result\":\"ok\",\"state\":true}" : "{\"result\":\"ok\",\"state\":false}"));
+}
+
 void handleState() {
-  server.send(200, "text/plain", (relayState?"Relay is OFF" : "Relay is ON"));
+  sendState();
 }
 
 void handleOn() {
-  digitalWrite(relayPin, LOW);
-  server.send(200, "text/plain", "Relay is ON");
+  handleUpdate(millis(), 1);
+  sendState();
 }
 
 void handleOff() {
-  digitalWrite(relayPin, HIGH);
-  server.send(200, "text/plain", "Relay is OFF");
+  handleUpdate(millis(), 0);
+  sendState();
 }
 
 void handleWifiSetup() {
@@ -143,58 +204,14 @@ void connectToWifi(){
 void updateButtonState() {
   unsigned long currentMillis = millis();
 
-
   if (digitalRead(buttonPin) == HIGH) {
     if (!buttonState && currentMillis - lastButtonPressTime >= debounceDelay) {
       buttonState = true;
       lastButtonPressTime = currentMillis;
-      relayState = !relayState;
+      handleUpdate(millis(), !relayState);
       Serial.println(relayState);
-      digitalWrite(relayPin, relayState);
     }
   } else {
     buttonState = false;
-  }
-}
-
-
-
-void updateServer() {
-  unsigned long currentMillis = millis();
-
-  if (currentMillis - lastServerUpdate >= serverUpdateInterval) {
-    Serial.println("I want to update server");
-    lastServerUpdate = currentMillis;
-
-    // Send current state to the server
-    String serverUrl = "http://192.168.4.2:8000/socket_status?status=" + String(relayState);
-    Serial.println(serverUrl);
-
-    String postData = "status=" + String(relayState);
-    lastServerUpdate = currentMillis;
-
-    WiFiClient client;
-
-    HTTPClient httpClient;
-
-    httpClient.begin(client, serverUrl);
-    httpClient.addHeader("Content-Type", "application/json");
-    int httpResponseCode = httpClient.POST(postData);
-    httpClient.end();
-
-    Serial.println(httpResponseCode);
-    // Receive updates from the server
-    Serial.println(httpClient.getString());
-    if (httpResponseCode == HTTP_CODE_OK) {
-      Serial.println("update server successfully");
-      String response = httpClient.getString();
-      if (response == "ON") {
-        relayState = true;
-        digitalWrite(relayPin, HIGH);
-      } else if (response == "OFF") {
-        relayState = false;
-        digitalWrite(relayPin, LOW);
-      }
-    }
   }
 }
