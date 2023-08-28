@@ -29,10 +29,11 @@ const unsigned long serverUpdateInterval = 1000;
 const unsigned long serverSource = 0;
 const unsigned long localSource = 1;
 const unsigned long buttonSource = 2;
+const String api_key = "oprfjiorghioherioghioerhgio345pw98ty";
 
 unsigned long lastUpdateTimer = 0;
 unsigned long lastButtonUpdateTimer = 0;
-unsigned long lastUpdateSource = 0;
+unsigned long lastUpdateSource = 2;
 
 void handleUpdate(int timer, int res, int source = 2){
   if(lastUpdateTimer<timer){
@@ -82,20 +83,22 @@ void setup() {
     Serial.println("Trying");
     SyncClient client;
     int lastServerUpdateTimer = millis();
+    client.setTimeout(3);
     if(!client.connect("192.168.4.2", 8000)) {
       Serial.println("Connect Failed");
       continue;
     }
-    client.setTimeout(5);
     String stats = (lastUpdateSource == serverSource ? "no_change": (relayState?"on":"off"));
-    String request = "POST /socket_status?status="+stats+" HTTP/1.1\r\nHost: 192.168.4.2\r\nConnection: close\r\n\r\n";
+    String request = "POST /socket_status?status="+stats+" HTTP/1.1\r\nHost: 192.168.4.2\r\nAuthorization: "+api_key+"\r\nConnection: close\r\n\r\n";
     char response;
     if(client.printf(request.c_str()) > 0){
       while(client.connected() || client.available()){
-        while(!client.available()){
+        while(client.connected() && !client.available()){
           internal_loop();
         }
-        response = client.read();
+        if(client.available()){
+          response = client.read();
+        }
       }
       Serial.print("result: ");
       Serial.println(response);
@@ -164,7 +167,7 @@ void handleWifiSetup() {
 void hotspot(){
     // Start ESP8266 AP
     WiFi.mode(WIFI_AP);
-    WiFi.softAP(apSsid);
+    WiFi.softAP(apSsid, apPassword);
     Serial.println("\nHotspot");
 }
 
