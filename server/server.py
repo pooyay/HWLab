@@ -12,9 +12,11 @@ socket_status = False
 api_key = "oprfjiorghioherioghioerhgio345pw98ty"
 last_esp_request = 0
 
+
 def esp_connected():
     global last_esp_timestamp
     return time.time() <= last_esp_timestamp + 30
+
 
 @app.get("/", response_class=HTMLResponse)
 def running_server():
@@ -28,13 +30,14 @@ def running_server():
     return html
 
 
-def authorize(path:str, req: Request):
+def authorize(path: str, req: Request):
     global api_key
     if path == '/socket_status':
-    	if 'Authorization' not in req.headers:
-    	    raise Error('Authorization header is required')
-    	if req.headers['Authorization']!=api_key:
-    	    raise Error('Authorization header is not valid')
+        if 'Authorization' not in req.headers:
+            raise Exception('Authorization header is required')
+        if req.headers['Authorization'] != api_key:
+            raise Exception('Authorization header is not valid')
+
 
 # ESP
 @app.post("/socket_status", response_class=HTMLResponse)
@@ -54,7 +57,7 @@ def update_socket_status(req: Request, status: str):
 def user_on():
     global socket_status
     if not esp_connected():
-    	return {"result": "fail", 'error': 'قطعه به اینترنت متصل نیست'}
+        return {"result": "fail", 'error': 'قطعه به اینترنت متصل نیست'}
     socket_status = True
     return {"result": "ok", 'state': socket_status}
 
@@ -64,7 +67,7 @@ def user_on():
 def user_off():
     global socket_status
     if not esp_connected():
-    	return {"result": "fail", 'error': 'قطعه به اینترنت متصل نیست'}
+        return {"result": "fail", 'error': 'قطعه به اینترنت متصل نیست'}
     socket_status = False
     return {"result": "ok", 'state': socket_status}
 
@@ -74,7 +77,7 @@ def user_off():
 def user_state():
     global socket_status
     if not esp_connected():
-    	return {"result": "fail", 'error': 'قطعه به اینترنت متصل نیست'}
+        return {"result": "fail", 'error': 'قطعه به اینترنت متصل نیست'}
     return {"result": "ok", 'state': socket_status}
 
 
