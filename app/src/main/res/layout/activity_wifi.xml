@@ -1,10 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
-<androidx.coordinatorlayout.widget.CoordinatorLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     xmlns:tools="http://schemas.android.com/tools"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:fitsSystemWindows="true"
+    android:orientation="vertical"
     tools:context=".WifiActivity">
 
     <com.google.android.material.appbar.AppBarLayout
@@ -22,31 +23,49 @@
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="match_parent"
-        tools:context=".FirstFragment"
+        android:padding="20dp"
         android:orientation="vertical">
+
+        <TextView
+            android:id="@+id/ipAddressTextView"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="TextView" />
+
+        <EditText
+            android:id="@+id/serverText"
+            android:layout_width="match_parent"
+            android:layout_height="60dp"
+            android:ems="10"
+            android:hint="Server IP (Blank for no change)"
+            android:inputType="text" />
 
         <EditText
             android:id="@+id/ssid_text"
             android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:ems="10"
+            android:layout_height="60dp"
+            android:padding="10dp"
+            android:ems="30"
             android:hint="SSID"
             android:inputType="text" />
 
         <EditText
             android:id="@+id/password_text"
             android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:ems="10"
+            android:layout_height="60dp"
+            android:padding="10dp"
+            android:ems="30"
             android:hint="password"
             android:inputType="textPassword" />
 
         <Button
             android:id="@+id/setup_button"
+            android:layout_marginTop="20dp"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
+            android:layout_gravity="center"
             android:text="Setup" />
 
     </LinearLayout>
 
-</androidx.coordinatorlayout.widget.CoordinatorLayout>
+</LinearLayout>

@@ -1,24 +1,20 @@
 package edu.sharif.hwlab
 
-//import com.google.android.material.snackbar.Snackbar
-//import androidx.navigation.findNavController
-//import androidx.navigation.ui.AppBarConfiguration
-//import androidx.navigation.ui.navigateUp
-//import androidx.navigation.ui.setupActionBarWithNavController
-import java.nio.ByteBuffer
-
 import android.content.Context
 import android.net.DhcpInfo
 import android.net.wifi.WifiConfiguration
 import android.net.wifi.WifiInfo
 import android.net.wifi.WifiManager
 import android.os.Bundle
+import android.util.Log
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import edu.sharif.hwlab.databinding.ActivityWifiBinding
+import kotlinx.coroutines.DelicateCoroutinesApi
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.GlobalScope
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.io.BufferedReader
 import java.io.DataOutputStream
 import java.io.InputStreamReader
@@ -31,31 +27,10 @@ import java.net.SocketException
 import java.net.URL
 import java.net.UnknownHostException
 import kotlin.experimental.and
+import kotlin.experimental.or
 
 
 class WifiActivity : AppCompatActivity() {
-
-    fun postRequest() {
-//        val values = mapOf("ssid" to binding.ssidText.text, "password" to binding.passwordText.text)
-        val url = URL("http://192.168.4.1/wifi")
-        val postData = "ssid=" + binding.ssidText.text + "&password=" + binding.passwordText.text
-
-        val conn = url.openConnection() as HttpURLConnection
-        conn.requestMethod = "POST"
-        conn.doOutput = true
-        conn.setRequestProperty("Content-Type", "application/x-www-form-urlencoded")
-        conn.setRequestProperty("Content-Length", postData.length.toString())
-        conn.useCaches = false
-
-        DataOutputStream(conn.outputStream).use { it.writeBytes(postData) }
-        BufferedReader(InputStreamReader(conn.inputStream)).use { br ->
-            var line: String?
-            while (br.readLine().also { line = it } != null) {
-                println(line)
-            }
-        }
-    }
-
     fun setupHotspot() {
         val esp_ssid = "sakht"
         val esp_password = "12345678"
@@ -69,14 +44,8 @@ class WifiActivity : AppCompatActivity() {
         wifiManager.reconnect()
     }
 
-
-    fun inetAddressToInt(inetAddress: InetAddress): Int {
-        val ipBytes = inetAddress.address
-        return ByteBuffer.wrap(ipBytes).int
-    }
-
-    //    private lateinit var appBarConfiguration: AppBarConfiguration
     private lateinit var binding: ActivityWifiBinding
+    private lateinit var espIp: String
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -84,26 +53,20 @@ class WifiActivity : AppCompatActivity() {
         binding = ActivityWifiBinding.inflate(layoutInflater)
         setContentView(binding.root)
 
-        setSupportActionBar(binding.toolbar)
-
-//        val navController = findNavController(R.id.nav_host_fragment_content_wifi)
-//        appBarConfiguration = AppBarConfiguration(navController.graph)
-//        setupActionBarWithNavController(navController, appBarConfiguration)
-
-        binding.setupButton.setOnClickListener {
-//            postRequest()
-
-            val apiUrl = "http://192.168.4.1/wifi"
-            performApiCall(apiUrl)
+        GlobalScope.launch(Dispatchers.IO) {
+            espIp = findIp()
+            binding.ipAddressTextView.text = "Esp IP Address: $espIp"
         }
-
-//        val apiUrl = "http://your.api.endpoint.com"
-//        performApiCall(apiUrl)
+        setSupportActionBar(binding.toolbar)
+        binding.setupButton.setOnClickListener {
+            performApiCall("/wifi")
+        }
     }
 
-    private fun performApiCall(apiUrl: String) {
+    @OptIn(DelicateCoroutinesApi::class)
+    private fun performApiCall(route: String) {
         GlobalScope.launch(Dispatchers.IO) {
-            val result = makeApiCall(apiUrl)
+            val result = makeApiCall(route)
             // Handle the API response on the main thread if needed
             launch(Dispatchers.Main) {
                 handleApiResponse(result)
@@ -111,7 +74,7 @@ class WifiActivity : AppCompatActivity() {
         }
     }
 
-    private fun getBroadcastIpAddress(): String {
+    private fun getBroadcastIpAddressHotspot(): String? {
         try {
             val enumNetworkInterfaces = NetworkInterface.getNetworkInterfaces()
             while (enumNetworkInterfaces.hasMoreElements()) {
@@ -120,72 +83,103 @@ class WifiActivity : AppCompatActivity() {
                     continue
                 val interfaceAddress = networkInterface.interfaceAddresses
                 return interfaceAddress.find { x -> x.broadcast != null }?.broadcast?.hostAddress
-                    ?: ""
             }
         } catch (e: SocketException) {
             e.printStackTrace()
         }
-        return ""
+        return null
     }
 
-    fun find_ip() {
-        try {
-            val bip = getBroadcastIpAddress()
-            println("Broadcast IP Address: $bip")
+    private fun intToIp(ip: Int): String {
+        return "${ip and 0xFF}.${(ip shr 8) and 0xFF}.${(ip shr 16) and 0xFF}.${(ip shr 24) and 0xFF}"
+    }
 
-            val socket = DatagramSocket()
-            socket.broadcast = true
-            val sendData = "GET_LOCAL_IP".toByteArray()
-            val sendPacket = DatagramPacket(
-                sendData,
-                sendData.size,
-                InetAddress.getByName(bip),
-                12345
-            )
-            socket.send(sendPacket)
-            val receiveData = ByteArray(1024)
-            val receivePacket = DatagramPacket(receiveData, receiveData.size)
-            socket.receive(receivePacket)
-            val receivedMessage =
-                String(receivePacket.data).slice(IntRange(0, receivePacket.length - 1))
-            println("Received IP Address: $receivedMessage")
-            socket.close()
-        } catch (e: Exception) {
-            e.printStackTrace()
+    fun getBroadcastIpAddressWifi(): String {
+        val wifiManager = applicationContext.getSystemService(Context.WIFI_SERVICE) as WifiManager
+        val netMask = wifiManager.dhcpInfo.netmask
+        return intToIp(wifiManager.connectionInfo?.ipAddress?.or(netMask.inv()) ?: 0)
+    }
+
+
+    private fun getBroadcastIpAddress(): String {
+        return getBroadcastIpAddressHotspot() ?: getBroadcastIpAddressWifi()
+    }
+
+    private fun findIp(): String {
+        var tries = 0
+        while (tries < 200) {
+            tries++
+            try {
+                val bip = getBroadcastIpAddress()
+                println("Broadcast IP Address: $bip")
+
+                val socket = DatagramSocket()
+                socket.broadcast = true
+                val sendData = "GET_LOCAL_IP".toByteArray()
+                val sendPacket = DatagramPacket(
+                    sendData,
+                    sendData.size,
+                    InetAddress.getByName(bip),
+                    12345
+                )
+                socket.soTimeout = 300;   // set the timeout in millisecounds.
+
+                socket.send(sendPacket)
+                val receiveData = ByteArray(1024)
+                val receivePacket = DatagramPacket(receiveData, receiveData.size)
+                socket.receive(receivePacket)
+                val receivedMessage =
+                    String(receivePacket.data).slice(IntRange(0, receivePacket.length - 1))
+                println("Received IP Address: $receivedMessage")
+                socket.close()
+                return receivedMessage
+            } catch (e: Throwable) {
+                println("FAILED")
+                println(e.message)
+                e.printStackTrace()
+            }
         }
+        return "192.168.4.1"
     }
 
 
-    private suspend fun makeApiCall(apiUrl: String): String {
-        find_ip()
-        return ""
-        /*val url = URL(apiUrl)
-        val connection = url.openConnection() as HttpURLConnection
+    private suspend fun makeApiCall(route: String): String {
+        val url = URL("http://$espIp$route")
+        val connection = withContext(Dispatchers.IO) {
+            url.openConnection()
+        } as HttpURLConnection
         connection.requestMethod = "POST"
         connection.doOutput = true
 
         try {
             val outputStream = connection.outputStream
-            val postData =
+            var postData =
                 "ssid=" + binding.ssidText.text + "&password=" + binding.passwordText.text
-            outputStream.write(postData.toByteArray())
-            outputStream.close()
+            if (binding.serverText.text.isNotEmpty()) {
+                postData += "&server=" + binding.serverText.text
+            }
+            withContext(Dispatchers.IO) {
+                outputStream.write(postData.toByteArray())
+            }
+            withContext(Dispatchers.IO) {
+                outputStream.close()
+            }
 
             val inputStream = BufferedReader(InputStreamReader(connection.inputStream))
             val response = StringBuilder()
             var line: String?
-            while (inputStream.readLine().also { line = it } != null) {
+            while (withContext(Dispatchers.IO) {
+                    inputStream.readLine()
+                }.also { line = it } != null) {
                 response.append(line)
             }
             return response.toString()
         } catch (e: Throwable) {
-            //val Log = Logger.getLogger(WifiActivity::class.java.name)
             e.message?.let { Log.e("Api call", it) }
             throw e
         } finally {
             connection.disconnect()
         }
-        return ""*/
     }
 
     private fun handleApiResponse(result: String) {
