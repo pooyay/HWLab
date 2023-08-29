@@ -48,7 +48,7 @@ def update_socket_status(req: Request, status: str):
     global socket_status
     if status != 'no_change':
         socket_status = (status == 'on')
-    time.sleep(10)
+    # time.sleep(3)
     return str(1 if socket_status else 0)
 
 
