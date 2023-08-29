@@ -1,12 +1,13 @@
 package edu.sharif.hwlab
 
 import android.content.Context
-import android.net.DhcpInfo
 import android.net.wifi.WifiConfiguration
-import android.net.wifi.WifiInfo
 import android.net.wifi.WifiManager
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.util.Log
+import android.widget.CompoundButton
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import edu.sharif.hwlab.databinding.ActivityWifiBinding
@@ -15,8 +16,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.GlobalScope
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import org.json.JSONObject
 import java.io.BufferedReader
-import java.io.DataOutputStream
 import java.io.InputStreamReader
 import java.net.DatagramPacket
 import java.net.DatagramSocket
@@ -25,9 +26,7 @@ import java.net.InetAddress
 import java.net.NetworkInterface
 import java.net.SocketException
 import java.net.URL
-import java.net.UnknownHostException
-import kotlin.experimental.and
-import kotlin.experimental.or
+import kotlin.system.exitProcess
 
 
 class WifiActivity : AppCompatActivity() {
@@ -55,21 +54,54 @@ class WifiActivity : AppCompatActivity() {
 
         GlobalScope.launch(Dispatchers.IO) {
             espIp = findIp()
-            binding.ipAddressTextView.text = "Esp IP Address: $espIp"
+            if (espIp.isEmpty()) {
+                espIp = "37.32.12.22:8000"
+                launch(Dispatchers.Main) {
+                    binding.ipAddressTextView.text =
+                        "Esp IP Address not found in local network, please add server url"
+                    binding.serverText.setText(espIp)
+                }
+            } else {
+                launch(Dispatchers.Main) {
+                    binding.ipAddressTextView.text = "Esp IP Address: $espIp"
+                }
+            }
+
+            val mainHandler = Handler(Looper.getMainLooper())
+
+            mainHandler.post(object : Runnable {
+                override fun run() {
+                    performApiCall("/state", "GET", null)
+                    mainHandler.postDelayed(this, 1000)
+                }
+            })
         }
         setSupportActionBar(binding.toolbar)
+
+        binding.relaySwitch.setOnCheckedChangeListener { compoundButton: CompoundButton, b: Boolean ->
+            var path = "/off";
+            if (b) {
+                path = "/on"
+            }
+            performApiCall(path, "GET", null)
+        }
         binding.setupButton.setOnClickListener {
-            performApiCall("/wifi")
+            var postData =
+                "ssid=" + binding.ssidText.text + "&password=" + binding.passwordText.text
+            if (binding.serverText.text.isNotEmpty()) {
+                postData += "&server=" + binding.serverText.text
+            }
+            performApiCall("/wifi", "POST", postData)
         }
     }
 
     @OptIn(DelicateCoroutinesApi::class)
-    private fun performApiCall(route: String) {
+    private fun performApiCall(route: String, method: String, data: String?) {
         GlobalScope.launch(Dispatchers.IO) {
-            val result = makeApiCall(route)
+            val result = makeApiCall(route, method, data)
             // Handle the API response on the main thread if needed
             launch(Dispatchers.Main) {
-                handleApiResponse(result)
+                handleApiResponse(route, result)
             }
         }
     }
@@ -107,7 +139,7 @@ class WifiActivity : AppCompatActivity() {
 
     private fun findIp(): String {
         var tries = 0
-        while (tries < 200) {
+        while (tries < 30) {
             tries++
             try {
                 val bip = getBroadcastIpAddress()
@@ -139,30 +171,31 @@ class WifiActivity : AppCompatActivity() {
                 e.printStackTrace()
             }
         }
-        return "192.168.4.1"
+        return ""
     }
 
 
-    private suspend fun makeApiCall(route: String): String {
+    private suspend fun makeApiCall(
+        route: String,
+        method: String = "POST",
+        data: String? = null
+    ): String {
         val url = URL("http://$espIp$route")
         val connection = withContext(Dispatchers.IO) {
             url.openConnection()
         } as HttpURLConnection
-        connection.requestMethod = "POST"
-        connection.doOutput = true
+        connection.requestMethod = method
 
         try {
-            val outputStream = connection.outputStream
-            var postData =
-                "ssid=" + binding.ssidText.text + "&password=" + binding.passwordText.text
-            if (binding.serverText.text.isNotEmpty()) {
-                postData += "&server=" + binding.serverText.text
-            }
-            withContext(Dispatchers.IO) {
-                outputStream.write(postData.toByteArray())
-            }
-            withContext(Dispatchers.IO) {
-                outputStream.close()
+            if (!data.isNullOrEmpty()) {
+                connection.doOutput = true
+                val outputStream = connection.outputStream
+                withContext(Dispatchers.IO) {
+                    outputStream.write(data.toByteArray())
+                }
+                withContext(Dispatchers.IO) {
+                    outputStream.close()
+                }
             }
 
             val inputStream = BufferedReader(InputStreamReader(connection.inputStream))
@@ -182,9 +215,17 @@ class WifiActivity : AppCompatActivity() {
         }
     }
 
-    private fun handleApiResponse(result: String) {
-        Toast.makeText(applicationContext, result, Toast.LENGTH_LONG).show()
-        // Handle the API response here
+    private fun handleApiResponse(route: String, result: String) {
+        if (route == "/wifi") {
+            Toast.makeText(applicationContext, result, Toast.LENGTH_LONG).show()
+        } else if (route == "/state") {
+            val obj = JSONObject(result)
+            if(obj.get("result") !="ok"){
+                Toast.makeText(applicationContext, obj.get("error").toString(), Toast.LENGTH_LONG).show()
+                exitProcess(0)
+            }
+            binding.relaySwitch.isChecked = obj.get("state") as Boolean
+        }
     }
 
 

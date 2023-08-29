@@ -30,7 +30,7 @@
             android:id="@+id/ipAddressTextView"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="TextView" />
+            android:text="Loading..." />
 
         <EditText
             android:id="@+id/serverText"
@@ -65,6 +65,12 @@
             android:layout_height="wrap_content"
             android:layout_gravity="center"
             android:text="Setup" />
+
+        <Switch
+            android:id="@+id/relay_switch"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Switch" />
 
     </LinearLayout>
 
